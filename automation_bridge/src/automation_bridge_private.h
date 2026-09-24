@@ -66,8 +66,9 @@ namespace dmAutomationBridge
 
     struct Property
     {
-        char*   m_Name;
-        char*   m_Json;
+        dmhash_t m_NameHash;
+        double  m_Number;
+        bool    m_HasNumber;
         char*   m_StringValue;
         float   m_Vector[4];
         uint8_t m_VectorCount;

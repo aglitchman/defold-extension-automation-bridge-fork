@@ -4217,6 +4217,12 @@ class AutomationBridgeApiTest(unittest.TestCase):
                 self.bridge.request("GET", "/elements", params=params)
             self.assertEqual(400, error.exception.status)
 
+    def test_snapshot_properties_and_identity_survive_basic_queries(self):
+        """Basic queries must not discard values needed by subsequent rich queries."""
+        self.ensure_running_bridge()
+        from tests.snapshot_checks import check_snapshot_queries
+        check_snapshot_queries(self, self.bridge)
+
     def test_application_catalog_discovers_command_and_state_event_contracts(self):
         self.ensure_running_bridge()
         command = self.bridge.application_catalog(kind="command", name="sample.reset")

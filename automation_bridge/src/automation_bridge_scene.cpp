@@ -6,6 +6,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <unordered_map>
+#include <dmsdk/dlib/profile.h>
 
 namespace dmAutomationBridge
 {
@@ -102,28 +104,13 @@ namespace dmAutomationBridge
 
     static void FreeProperty(Property* property)
     {
-        FreeString(&property->m_Name);
-        FreeString(&property->m_Json);
         FreeString(&property->m_StringValue);
-    }
-
-    static bool SetPropertyJsonString(Property* property, const char* value)
-    {
-        StringBuffer json;
-        StringBufferInit(&json);
-        AppendJsonString(&json, value);
-        free(property->m_Json);
-        property->m_Json = StringBufferDetach(&json);
-        return property->m_Json != 0;
     }
 
     static bool MakeProperty(Property* property, const dmGameObject::SceneNodeProperty* source)
     {
         memset(property, 0, sizeof(*property));
-        if (!SetHashString(&property->m_Name, source->m_NameHash))
-        {
-            return false;
-        }
+        property->m_NameHash = source->m_NameHash;
 
         switch (source->m_Type)
         {
@@ -132,29 +119,23 @@ namespace dmAutomationBridge
             {
                 return false;
             }
-            SetPropertyJsonString(property, property->m_StringValue);
             break;
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_NUMBER:
         {
-            StringBuffer json;
-            StringBufferInit(&json);
-            AppendNumber(&json, source->m_Value.m_Number);
-            property->m_Json = StringBufferDetach(&json);
+            property->m_Number = source->m_Value.m_Number;
+            property->m_HasNumber = true;
             break;
         }
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_BOOLEAN:
             property->m_BoolValue = source->m_Value.m_Bool;
             property->m_HasBool = true;
-            SetString(&property->m_Json, source->m_Value.m_Bool ? "true" : "false");
             SetString(&property->m_StringValue, source->m_Value.m_Bool ? "true" : "false");
             break;
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_URL:
             SetString(&property->m_StringValue, source->m_Value.m_URL);
-            SetPropertyJsonString(property, property->m_StringValue);
             break;
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_TEXT:
             SetString(&property->m_StringValue, source->m_Value.m_Text ? source->m_Value.m_Text : "");
-            SetPropertyJsonString(property, property->m_StringValue);
             break;
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_VECTOR3:
         case dmGameObject::SCENE_NODE_PROPERTY_TYPE_VECTOR4:
@@ -163,28 +144,49 @@ namespace dmAutomationBridge
             property->m_HasVector = true;
             property->m_VectorCount = source->m_Type == dmGameObject::SCENE_NODE_PROPERTY_TYPE_VECTOR3 ? 3 : 4;
 
-            StringBuffer json;
-            StringBufferInit(&json);
-            StringBufferAppendChar(&json, '[');
             for (uint32_t i = 0; i < property->m_VectorCount; ++i)
             {
                 property->m_Vector[i] = source->m_Value.m_V4[i];
-                if (i > 0)
-                {
-                    StringBufferAppendChar(&json, ',');
-                }
-                AppendNumber(&json, property->m_Vector[i]);
             }
-            StringBufferAppendChar(&json, ']');
-            property->m_Json = StringBufferDetach(&json);
             break;
         }
         default:
-            SetString(&property->m_Json, "null");
             break;
         }
 
-        return property->m_Json != 0;
+        return true;
+    }
+
+    // Own the sampled values, but format only properties actually returned.
+    // This also supports a richer include on the same cached frame snapshot.
+    static void AppendPropertyJson(StringBuffer* out, const Property* property)
+    {
+        if (property->m_HasNumber)
+        {
+            AppendNumber(out, property->m_Number);
+        }
+        else if (property->m_HasBool)
+        {
+            StringBufferAppend(out, property->m_BoolValue ? "true" : "false");
+        }
+        else if (property->m_HasVector)
+        {
+            StringBufferAppendChar(out, '[');
+            for (uint32_t i = 0; i < property->m_VectorCount; ++i)
+            {
+                if (i > 0) StringBufferAppendChar(out, ',');
+                AppendNumber(out, property->m_Vector[i]);
+            }
+            StringBufferAppendChar(out, ']');
+        }
+        else if (property->m_StringValue)
+        {
+            AppendJsonString(out, property->m_StringValue);
+        }
+        else
+        {
+            StringBufferAppend(out, "null");
+        }
     }
 
     static void InitNode(Node* node)
@@ -222,49 +224,61 @@ namespace dmAutomationBridge
 
     static void ApplyPropertyToNode(Node* node, const Property* property)
     {
-        if (StringsEqual(property->m_Name, "id") && !IsEmpty(property->m_StringValue))
+        static const dmhash_t ID_HASH = dmHashString64("id");
+        static const dmhash_t TYPE_HASH = dmHashString64("type");
+        static const dmhash_t TEXT_HASH = dmHashString64("text");
+        static const dmhash_t URL_HASH = dmHashString64("url");
+        static const dmhash_t RESOURCE_HASH = dmHashString64("resource");
+        static const dmhash_t VISIBLE_HASH = dmHashString64("visible");
+        static const dmhash_t ENABLED_HASH = dmHashString64("enabled");
+        static const dmhash_t PIVOT_HASH = dmHashString64("pivot");
+        static const dmhash_t WORLD_POSITION_HASH = dmHashString64("world_position");
+        static const dmhash_t POSITION_HASH = dmHashString64("position");
+        static const dmhash_t WORLD_SIZE_HASH = dmHashString64("world_size");
+        static const dmhash_t SIZE_HASH = dmHashString64("size");
+        if ((property->m_NameHash == ID_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetString(&node->m_Name, property->m_StringValue);
         }
-        else if (StringsEqual(property->m_Name, "type") && !IsEmpty(property->m_StringValue))
+        else if ((property->m_NameHash == TYPE_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetString(&node->m_Type, property->m_StringValue);
         }
-        else if (StringsEqual(property->m_Name, "text") && !IsEmpty(property->m_StringValue))
+        else if ((property->m_NameHash == TEXT_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetString(&node->m_Text, property->m_StringValue);
         }
-        else if (StringsEqual(property->m_Name, "url") && !IsEmpty(property->m_StringValue))
+        else if ((property->m_NameHash == URL_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetString(&node->m_Url, property->m_StringValue);
         }
-        else if (StringsEqual(property->m_Name, "resource") && !IsEmpty(property->m_StringValue))
+        else if ((property->m_NameHash == RESOURCE_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetString(&node->m_Resource, property->m_StringValue);
         }
-        else if (StringsEqual(property->m_Name, "visible") && property->m_HasBool)
+        else if ((property->m_NameHash == VISIBLE_HASH) && property->m_HasBool)
         {
             node->m_Visible = property->m_BoolValue;
         }
-        else if (StringsEqual(property->m_Name, "enabled") && property->m_HasBool)
+        else if ((property->m_NameHash == ENABLED_HASH) && property->m_HasBool)
         {
             node->m_Enabled = property->m_BoolValue;
         }
-        else if (StringsEqual(property->m_Name, "pivot") && !IsEmpty(property->m_StringValue))
+        else if ((property->m_NameHash == PIVOT_HASH) && !IsEmpty(property->m_StringValue))
         {
             SetAnchorFromPivot(node, property->m_StringValue);
         }
 
         if (property->m_HasVector && property->m_VectorCount >= 2)
         {
-            if (StringsEqual(property->m_Name, "world_position") || (!node->m_HasPosition && StringsEqual(property->m_Name, "position")))
+            if ((property->m_NameHash == WORLD_POSITION_HASH) || (!node->m_HasPosition && (property->m_NameHash == POSITION_HASH)))
             {
                 node->m_HasPosition = true;
                 node->m_Position[0] = property->m_Vector[0];
                 node->m_Position[1] = property->m_Vector[1];
                 node->m_Position[2] = property->m_VectorCount >= 3 ? property->m_Vector[2] : 0.0f;
             }
-            else if (StringsEqual(property->m_Name, "world_size") || (!node->m_HasSize && StringsEqual(property->m_Name, "size")))
+            else if ((property->m_NameHash == WORLD_SIZE_HASH) || (!node->m_HasSize && (property->m_NameHash == SIZE_HASH)))
             {
                 node->m_HasSize = true;
                 node->m_Size[0] = property->m_Vector[0];
@@ -418,33 +432,42 @@ namespace dmAutomationBridge
         node->m_Bounds.m_Valid = true;
     }
 
-    static void DiscoverSnapshotCamera(dmGameObject::SceneNode* scene_node)
+    struct InstanceIdentity
     {
-        Node node;
-        InitNode(&node);
+        const char* m_Id;
+        uint32_t m_Generation;
 
-        dmGameObject::SceneNodePropertyIterator pit = dmGameObject::TraverseIterateProperties(scene_node);
-        while (dmGameObject::TraverseIteratePropertiesNext(&pit))
+        bool operator==(const InstanceIdentity& other) const
         {
-            Property property;
-            if (MakeProperty(&property, &pit.m_Property))
+            return m_Generation == other.m_Generation && StringsEqual(m_Id, other.m_Id);
+        }
+    };
+
+    struct InstanceIdentityHash
+    {
+        size_t operator()(const InstanceIdentity& identity) const
+        {
+            return (size_t)(dmHashString64(identity.m_Id) ^ ((uint64_t)identity.m_Generation << 32));
+        }
+    };
+
+    typedef std::unordered_map<InstanceIdentity, uint64_t, InstanceIdentityHash> IdentityIndex;
+
+    // Keys borrow strings from the previous snapshot, which stays alive for the
+    // whole build. emplace preserves the first match when several components
+    // share an instance, exactly like the old linear lookup.
+    static void IndexPreviousIdentities(const Snapshot* previous, IdentityIndex* identities)
+    {
+        DM_PROFILE("BridgeSnapshotIdentityIndex");
+        identities->reserve(previous->m_Nodes.m_Count);
+        for (uint32_t i = 0; i < previous->m_Nodes.m_Count; ++i)
+        {
+            const Node* node = &previous->m_Nodes.m_Data[i];
+            if (node->m_HasInstanceIdentity)
             {
-                ApplyPropertyToNode(&node, &property);
-                FreeProperty(&property);
+                InstanceIdentity key = {node->m_InstanceId, node->m_InstanceGeneration};
+                identities->emplace(key, node->m_CreatedSceneSequence);
             }
-        }
-
-        if (scene_node->m_Type == dmGameObject::SCENE_NODE_TYPE_COMPONENT && node.m_Enabled && StringsEqual(node.m_Type, "camerac"))
-        {
-            DefoldPrivateApiUseSnapshotCamera(scene_node);
-        }
-
-        FreeNode(&node);
-
-        dmGameObject::SceneNodeIterator it = dmGameObject::TraverseIterateChildren(scene_node);
-        while (dmGameObject::TraverseIterateNext(&it))
-        {
-            DiscoverSnapshotCamera(&it.m_Node);
         }
     }
 
@@ -464,7 +487,7 @@ namespace dmAutomationBridge
         InitSnapshot(snapshot);
     }
 
-    static int32_t BuildNode(Snapshot* snapshot, dmGameObject::SceneNode* scene_node, int32_t parent_index, const char* parent_path, uint32_t sibling_index)
+    static int32_t BuildNode(Snapshot* snapshot, Array<dmGameObject::SceneNode>* native_nodes, const IdentityIndex& identities, dmGameObject::SceneNode* scene_node, int32_t parent_index, const char* parent_path, uint32_t sibling_index)
     {
         Node node;
         InitNode(&node);
@@ -481,6 +504,13 @@ namespace dmAutomationBridge
                     FreeProperty(&property);
                 }
             }
+        }
+
+        // Camera selection retains the previous depth-first order and uses
+        // native properties before annotations. Bounds are resolved afterwards.
+        if (scene_node->m_Type == dmGameObject::SCENE_NODE_TYPE_COMPONENT && node.m_Enabled && StringsEqual(node.m_Type, "camerac"))
+        {
+            DefoldPrivateApiUseSnapshotCamera(scene_node);
         }
 
         if (IsEmpty(node.m_Type))
@@ -539,17 +569,11 @@ namespace dmAutomationBridge
             SetString(&node.m_LogicalId, logical_id);
             node.m_CreatedSceneSequence = snapshot->m_Sequence;
 
-            const Snapshot* previous = &g_AutomationBridge.m_Snapshot;
-            for (uint32_t i = 0; i < previous->m_Nodes.m_Count; ++i)
+            InstanceIdentity key = {node.m_InstanceId, node.m_InstanceGeneration};
+            IdentityIndex::const_iterator old = identities.find(key);
+            if (old != identities.end())
             {
-                const Node* old = &previous->m_Nodes.m_Data[i];
-                if (old->m_HasInstanceIdentity &&
-                    old->m_InstanceGeneration == node.m_InstanceGeneration &&
-                    StringsEqual(old->m_InstanceId, node.m_InstanceId))
-                {
-                    node.m_CreatedSceneSequence = old->m_CreatedSceneSequence;
-                    break;
-                }
+                node.m_CreatedSceneSequence = old->second;
             }
         }
 
@@ -558,36 +582,27 @@ namespace dmAutomationBridge
             SetString(&node.m_Parent, snapshot->m_Nodes.m_Data[parent_index].m_Id);
         }
 
-        Bounds private_bounds;
-        if (DefoldPrivateApiComputeBounds(scene_node, &node, snapshot, &private_bounds))
-        {
-            node.m_Bounds = private_bounds;
-        }
-        else
-        {
-            ComputeFallbackBounds(&node, snapshot->m_WindowWidth, snapshot->m_WindowHeight, snapshot->m_DisplayWidth, snapshot->m_DisplayHeight);
-        }
-
         uint32_t index = snapshot->m_Nodes.m_Count;
-        if (!ArrayPush(&snapshot->m_Nodes, &node))
+        // Keep native handles only until this synchronous snapshot build ends.
+        if (!ArrayReserve(native_nodes, index + 1) || !ArrayPush(&snapshot->m_Nodes, &node))
         {
             FreeNode(&node);
             return -1;
         }
 
+        ArrayPush(native_nodes, scene_node);
+
         dmGameObject::SceneNodeIterator it = dmGameObject::TraverseIterateChildren(scene_node);
         uint32_t child_index = 0;
         while (dmGameObject::TraverseIterateNext(&it))
         {
-            int32_t child = BuildNode(snapshot, &it.m_Node, (int32_t)index, snapshot->m_Nodes.m_Data[index].m_Path, child_index++);
+            int32_t child = BuildNode(snapshot, native_nodes, identities, &it.m_Node, (int32_t)index, snapshot->m_Nodes.m_Data[index].m_Path, child_index++);
             if (child >= 0)
             {
                 uint32_t child_u32 = (uint32_t)child;
                 ArrayPush(&snapshot->m_Nodes.m_Data[index].m_Children, &child_u32);
             }
         }
-
-        UseChildBoundsIfBetter(snapshot, index);
 
         return (int32_t)index;
     }
@@ -628,6 +643,7 @@ namespace dmAutomationBridge
 
     void UpdateSnapshot()
     {
+        DM_PROFILE("BridgeSnapshot");
         Snapshot snapshot;
         InitSnapshot(&snapshot);
         snapshot.m_Sequence = g_AutomationBridge.m_Snapshot.m_Sequence + 1;
@@ -639,9 +655,35 @@ namespace dmAutomationBridge
             memset(&root, 0, sizeof(root));
             if (dmGameObject::TraverseGetRoot(g_AutomationBridge.m_Register, &root))
             {
+                IdentityIndex identities;
+                IndexPreviousIdentities(&g_AutomationBridge.m_Snapshot, &identities);
+                Array<dmGameObject::SceneNode> native_nodes = {};
                 DefoldPrivateApiResetSnapshotCamera();
-                DiscoverSnapshotCamera(&root);
-                snapshot.m_Root = BuildNode(&snapshot, &root, -1, "", 0);
+                {
+                    DM_PROFILE("BridgeSnapshotTraverse");
+                    snapshot.m_Root = BuildNode(&snapshot, &native_nodes, identities, &root, -1, "", 0);
+                }
+                {
+                    DM_PROFILE("BridgeSnapshotBounds");
+                    // Children follow parents in traversal order. Reverse order
+                    // resolves their bounds before combining bounds for parents.
+                    for (uint32_t i = snapshot.m_Nodes.m_Count; i > 0; --i)
+                    {
+                        Node* node = &snapshot.m_Nodes.m_Data[i - 1];
+                        Bounds bounds;
+                        if (DefoldPrivateApiComputeBounds(&native_nodes.m_Data[i - 1], node, &snapshot, &bounds))
+                        {
+                            node->m_Bounds = bounds;
+                        }
+                        else
+                        {
+                            ComputeFallbackBounds(node, snapshot.m_WindowWidth, snapshot.m_WindowHeight,
+                                                  snapshot.m_DisplayWidth, snapshot.m_DisplayHeight);
+                        }
+                        UseChildBoundsIfBetter(&snapshot, i - 1);
+                    }
+                }
+                ArrayFree(&native_nodes);
             }
         }
 
@@ -778,9 +820,12 @@ namespace dmAutomationBridge
                 {
                     StringBufferAppendChar(out, ',');
                 }
-                AppendJsonString(out, node->m_Properties.m_Data[i].m_Name);
+                char* name = 0;
+                SetHashString(&name, node->m_Properties.m_Data[i].m_NameHash);
+                AppendJsonString(out, name);
+                FreeString(&name);
                 StringBufferAppendChar(out, ':');
-                StringBufferAppend(out, node->m_Properties.m_Data[i].m_Json);
+                AppendPropertyJson(out, &node->m_Properties.m_Data[i]);
             }
             StringBufferAppendChar(out, '}');
         }
