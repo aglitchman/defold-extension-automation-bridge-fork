@@ -2696,7 +2696,10 @@ class Client:
         normalized_include = _normalize_include(include)
         if normalized_include:
             params["include"] = normalized_include
-        if limit is not None:
+        # The embedded HTTP server stores at most 127 resource bytes. Avoid
+        # spending nine of them on the native /elements default: truncation
+        # can otherwise turn a valid trailing limit into an empty value.
+        if limit is not None and limit != 50:
             params["limit"] = limit
         for key in ("offset", "cursor"):
             if selector.get(key) is not None:

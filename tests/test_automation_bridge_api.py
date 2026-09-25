@@ -465,6 +465,17 @@ class EngineClientUnitTest(unittest.TestCase):
             self.assertEqual(0, page.count)
             self.assertIsNone(page.next_cursor)
 
+    def test_default_element_limit_fits_embedded_http_resource_buffer(self):
+        bridge = EngineClient(1234)
+        selector = dict(name_exact="button_debug_add_money", visible=True,
+                        enabled=True, has_bounds=True)
+        params = bridge._server_params(selector, limit=50)
+        self.assertNotIn("limit", params)
+        resource = "/automation-bridge/v2/elements?" + urllib.parse.urlencode(bridge._encoded_params(params))
+        self.assertLessEqual(len(resource.encode("utf8")), 127)
+        for limit in (0, 1, 100, 500):
+            self.assertEqual(limit, bridge._server_params(selector, limit=limit)["limit"])
+
     def test_pagination_cannot_hide_ambiguous_single_element_selector(self):
         bridge = EngineClient(1234)
         data = {"elements": [{"id": "e:1"}], "matched": 2, "truncated": True, "next_cursor": "1"}
