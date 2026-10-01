@@ -554,7 +554,9 @@ namespace dmAutomationBridge
 
         // The visualization is a final screen overlay. Always bind the
         // backbuffer in case the render script left an offscreen target active.
-        dmGraphics::SetRenderTarget(g_AutomationBridge.m_GraphicsContext, 0, 0);
+        // Value-initialize the binding argument for both the legacy uint32_t
+        // mask and Defold 1.14.0's RenderTargetBindingParams.
+        dmGraphics::SetRenderTarget(g_AutomationBridge.m_GraphicsContext, 0, {});
         PrepareInputVisualizationRenderState(g_AutomationBridge.m_GraphicsContext, render_context, window_width, window_height);
 
         dmVMath::Matrix4 inverse_view_projection;

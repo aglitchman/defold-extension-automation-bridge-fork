@@ -1,6 +1,10 @@
 name: AutomationBridge
 
 platforms:
+  android:
+    context:
+      defines: ["FPNG_NO_SSE=1", "FPNG_NO_STDIO=1"]
+
   osx:
     context:
       defines: ["FPNG_NO_SSE=1", "FPNG_NO_STDIO=1"]

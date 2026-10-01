@@ -429,7 +429,9 @@ Schedules an atomic post-render PNG capture. `after_frames` may defer capture by
 up to 600 rendered callbacks. The accepted receipt includes a `capture_id` and
 must be completed through the status endpoint; file size polling is not a
 completion protocol. PNG rows use the same top-left window orientation as input,
-scene bounds, and coordinate conversion responses.
+scene bounds, and coordinate conversion responses. Capture is supported on
+OpenGL, OpenGL ES, Vulkan, and Metal, including Defold 1.14.0's default macOS
+adapter.
 
 ```sh
 curl -fsS "$BASE/screenshot" | python3 -m json.tool

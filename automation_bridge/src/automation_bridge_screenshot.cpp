@@ -28,7 +28,8 @@ namespace dmAutomationBridge
         dmGraphics::AdapterFamily family = dmGraphics::GetInstalledAdapterFamily();
         return family == dmGraphics::ADAPTER_FAMILY_OPENGL ||
                family == dmGraphics::ADAPTER_FAMILY_OPENGLES ||
-               family == dmGraphics::ADAPTER_FAMILY_VULKAN;
+               family == dmGraphics::ADAPTER_FAMILY_VULKAN ||
+               family == dmGraphics::ADAPTER_FAMILY_METAL;
     }
 
 
