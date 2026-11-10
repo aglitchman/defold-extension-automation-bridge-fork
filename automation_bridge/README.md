@@ -265,7 +265,8 @@ curl -fsS -X POST -H 'Content-Type: application/json' \
 
 ### `GET /automation-bridge/v2/frame`
 
-Returns the current `engine_frame` and `scene_sequence`. Poll this endpoint for
+Returns the current `engine_frame` and the last captured `scene_sequence`.
+Frame polling does not capture or traverse the scene. Poll this endpoint for
 frame-relative waits; semantic completion should use application state/events.
 
 ### `GET /automation-bridge/v2/scene`

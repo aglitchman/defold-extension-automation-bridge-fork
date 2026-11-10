@@ -1962,7 +1962,8 @@ namespace dmAutomationBridge
 
     static void HandleFrame(RequestContext* ctx)
     {
-        RefreshSnapshotForRequest();
+        // Frame waits need the update counter, not a traversal of every game
+        // object. Scene consumers refresh the snapshot on their own requests.
         StringBuffer response;
         StringBufferInit(&response);
         StringBufferAppend(&response, "{\"ok\":true,\"data\":{\"engine_frame\":");
